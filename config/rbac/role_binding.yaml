@@ -16,4 +16,3 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: trusted-cluster-operator
-  namespace: system

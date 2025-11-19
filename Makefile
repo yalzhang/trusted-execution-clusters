@@ -44,7 +44,8 @@ CRD_YAML_PATH = config/crd
 API_PATH = api/v1alpha1
 generate: $(CONTROLLER_GEN)
 	$(CONTROLLER_GEN) rbac:roleName=trusted-cluster-operator-role crd webhook paths="./..." \
-		output:crd:artifacts:config=$(CRD_YAML_PATH)
+		output:crd:artifacts:config=$(CRD_YAML_PATH) \
+		output:rbac:artifacts:config=config/rbac
 
 RS_LIB_PATH = lib/src
 CRD_RS_PATH = $(RS_LIB_PATH)/kopium
@@ -88,7 +89,7 @@ cluster-down:
 CONTAINER_CLI ?= podman
 RUNTIME ?= podman
 
-image:
+image: build reg-server
 	$(CONTAINER_CLI) build --build-arg build_type=$(BUILD_TYPE) -t $(OPERATOR_IMAGE) -f Containerfile .
 	$(CONTAINER_CLI) build --build-arg build_type=$(BUILD_TYPE) -t $(COMPUTE_PCRS_IMAGE) -f compute-pcrs/Containerfile .
 	$(CONTAINER_CLI) build --build-arg build_type=$(BUILD_TYPE) -t $(REG_SERVER_IMAGE) -f register-server/Containerfile .
@@ -100,6 +101,31 @@ push: image
 
 release-tarball: manifests
 	tar -cf trusted-execution-operator-$(TAG).tar config
+
+bundle: manifests $(YQ) ## Generates the OLM bundle manifests
+	rm -rf bundle/manifests bundle/metadata
+	mkdir -p bundle/manifests bundle/metadata
+	cp config/crd/*.yaml bundle/manifests/
+	cp bundle/static/metadata/annotations.yaml bundle/metadata/
+	$(YQ) '.metadata.name = "trusted-cluster-operator.v$(TAG)"' bundle/static/manifests/trusted-cluster-operator.clusterserviceversion.yaml | \
+	$(YQ) '.spec.version = "$(TAG)"' | \
+	$(YQ) '.metadata.annotations.containerImage = "$(OPERATOR_IMAGE)"' | \
+	$(YQ) '.spec.install.spec.deployments[0].spec.template.spec.containers[0].image = "$(OPERATOR_IMAGE)"' | \
+	$(YQ) '(.spec.install.spec.deployments[0].spec.template.spec.containers[0].env[] | select(.name == "COMPUTE_PCRS_IMAGE")).value = "$(COMPUTE_PCRS_IMAGE)"' | \
+	$(YQ) '(.spec.install.spec.deployments[0].spec.template.spec.containers[0].env[] | select(.name == "REGISTER_SERVER_IMAGE")).value = "$(REG_SERVER_IMAGE)"' | \
+	$(YQ) '.spec.install.spec.permissions[0].serviceAccountName = "trusted-cluster-operator"' | \
+	$(YQ) '.spec.install.spec.permissions[0].rules = load("config/rbac/role.yaml").rules' \
+	> bundle/manifests/trusted-cluster-operator.clusterserviceversion.yaml
+
+BUNDLE_IMAGE ?= $(REGISTRY)/trusted-cluster-operator-bundle:$(TAG)
+bundle-image: image bundle ## Builds the OLM bundle image
+	$(eval FORMAT_FLAG := $(if $(filter podman,$(CONTAINER_CLI)),--format=docker,))
+	$(CONTAINER_CLI) build $(FORMAT_FLAG) -f bundle/Containerfile -t $(BUNDLE_IMAGE) bundle/
+
+push-bundle: bundle-image ## Pushes the OLM bundle image
+	$(CONTAINER_CLI) push $(BUNDLE_IMAGE) $(PUSH_FLAGS)
+
+push-all: push push-bundle ## Pushes all operator and bundle images
 
 install: $(YQ)
 ifndef TRUSTEE_ADDR
