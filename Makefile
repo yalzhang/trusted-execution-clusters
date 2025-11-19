@@ -101,6 +101,31 @@ push: image
 release-tarball: manifests
 	tar -cf trusted-execution-operator-$(TAG).tar config
 
+# OLM Bundle related variables
+BUNDLE_DIR := bundle
+BUNDLE_IMAGE := $(REGISTRY)/trusted-cluster-operator-bundle:$(TAG)
+BUNDLE_PACKAGE ?= trusted-cluster-operator
+PREVIOUS_CSV ?= ""  # optional previous CSV for OLM upgrades
+
+.PHONY: bundle bundle-image push-bundle
+
+bundle: manifests
+	@echo "Generating OLM bundle..."
+	@OPERATOR_IMAGE=$(OPERATOR_IMAGE) \
+	COMPUTE_PCRS_IMAGE=$(COMPUTE_PCRS_IMAGE) \
+	REG_SERVER_IMAGE=$(REG_SERVER_IMAGE) \
+	scripts/generate-bundle-prod.sh -v $(TAG) $(if $(PREVIOUS_CSV),-p $(PREVIOUS_CSV))
+
+bundle-image: bundle
+	@echo "Building OLM bundle image..."
+	$(CONTAINER_CLI) build -f $(BUNDLE_DIR)/Containerfile -t $(BUNDLE_IMAGE) $(BUNDLE_DIR)/
+
+push-bundle: bundle-image
+	@echo "Pushing OLM bundle image..."
+	$(CONTAINER_CLI) push $(BUNDLE_IMAGE) $(PUSH_FLAGS)
+
+push-all: push push-bundle ## Pushes all operator and bundle images
+
 install: $(YQ)
 ifndef TRUSTEE_ADDR
 	$(error TRUSTEE_ADDR is undefined)
