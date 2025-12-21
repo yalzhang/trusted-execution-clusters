@@ -19,7 +19,7 @@ impl SingleAttestationContext {
         let client = test_ctx.client();
         let namespace = test_ctx.namespace();
 
-        let (_private_key, public_key, key_path) = virt::generate_ssh_key_pair()?;
+        let (_private_key, public_key, key_path) = virt::generate_ssh_key_pair().await?;
         test_ctx.info(format!(
             "Generated SSH key pair and added to ssh-agent: {:?}",
             key_path
@@ -96,8 +96,8 @@ async fn test_parallel_vm_attestation() -> anyhow::Result<()> {
     test_ctx.info("Testing parallel VM attestation - launching 2 VMs simultaneously");
 
     // Generate SSH keys for both VMs
-    let (_private_key1, public_key1, key_path1) = virt::generate_ssh_key_pair()?;
-    let (_private_key2, public_key2, key_path2) = virt::generate_ssh_key_pair()?;
+    let (_private_key1, public_key1, key_path1) = virt::generate_ssh_key_pair().await?;
+    let (_private_key2, public_key2, key_path2) = virt::generate_ssh_key_pair().await?;
     test_ctx.info("Generated SSH key pairs for both VMs");
 
     let register_server_url = format!(

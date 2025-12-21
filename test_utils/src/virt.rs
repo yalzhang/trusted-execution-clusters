@@ -12,7 +12,7 @@ use tokio::process::Command;
 
 use super::Poller;
 
-pub fn generate_ssh_key_pair() -> anyhow::Result<(String, String, std::path::PathBuf)> {
+pub async fn generate_ssh_key_pair() -> anyhow::Result<(String, String, std::path::PathBuf)> {
     use rand_core::OsRng;
     use ssh_key::{Algorithm, LineEnding, PrivateKey};
     use std::fs;
@@ -34,20 +34,25 @@ pub fn generate_ssh_key_pair() -> anyhow::Result<(String, String, std::path::Pat
     perms.set_mode(0o600);
     fs::set_permissions(&key_path, perms)?;
 
-    // Add key to ssh-agent using synchronous command
-    let ssh_add_output = StdCommand::new("ssh-add")
-        .arg(key_path.to_str().unwrap())
-        .output()?;
+    let key_path_clone = key_path.clone();
+    tokio::task::spawn_blocking(move || {
+        // Add key to ssh-agent using synchronous command
+        let ssh_add_output = StdCommand::new("ssh-add")
+            .arg(key_path_clone.to_str().unwrap())
+            .output()?;
 
-    if !ssh_add_output.status.success() {
-        let stderr = String::from_utf8_lossy(&ssh_add_output.stderr);
-        // Clean up the key file if ssh-add fails
-        let _ = fs::remove_file(&key_path);
-        return Err(anyhow::anyhow!(
-            "Failed to add SSH key to agent: {}",
-            stderr
-        ));
-    }
+        if !ssh_add_output.status.success() {
+            let stderr = String::from_utf8_lossy(&ssh_add_output.stderr);
+            // Clean up the key file if ssh-add fails
+            let _ = fs::remove_file(&key_path_clone);
+            return Err(anyhow::anyhow!(
+                "Failed to add SSH key to agent: {}",
+                stderr
+            ));
+        }
+        Ok(())
+    })
+    .await??;
 
     Ok((private_key_str, public_key_str, key_path))
 }
