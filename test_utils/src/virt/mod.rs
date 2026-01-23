@@ -3,6 +3,7 @@
 //
 // SPDX-License-Identifier: MIT
 
+pub mod azure;
 pub mod kubevirt;
 
 use anyhow::{Context, Result, anyhow};
@@ -179,14 +180,16 @@ pub async fn get_root_key(config: &VmConfig, ip: &str) -> Result<Vec<u8>> {
 pub enum VirtProvider {
     #[default]
     Kubevirt,
+    Azure,
 }
 
 fn get_virt_provider() -> Result<VirtProvider> {
     match env::var(VIRT_PROVIDER_ENV) {
         Ok(val) => match val.to_lowercase().as_str() {
             "kubevirt" => Ok(VirtProvider::Kubevirt),
+            "azure" => Ok(VirtProvider::Azure),
             v => Err(anyhow!(
-                "Unknown {VIRT_PROVIDER_ENV} '{v}'. Supported providers: kubevirt"
+                "Unknown {VIRT_PROVIDER_ENV} '{v}'. Supported providers: kubevirt, azure"
             )),
         },
         Err(env::VarError::NotPresent) => Ok(VirtProvider::default()),
@@ -212,6 +215,7 @@ pub fn create_backend(
     };
     match provider {
         VirtProvider::Kubevirt => Ok(Box::new(kubevirt::KubevirtBackend(config))),
+        VirtProvider::Azure => Ok(Box::new(azure::AzureBackend::new(config)?)),
     }
 }
 

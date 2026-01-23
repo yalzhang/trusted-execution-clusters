@@ -45,6 +45,11 @@ pub fn compare_pcrs(actual: &[Pcr], expected: &[Pcr]) -> bool {
     true
 }
 
+// Large warning frame, e.g. for paid cloud resources that may not have been shut down correctly
+pub fn warn_frame(msg: &str) -> String {
+    format!("{YELLOW}=== WARNING ===\n{msg}{ANSI_RESET}")
+}
+
 #[macro_export]
 macro_rules! test_info {
     ($test_name:expr, $($arg:tt)*) => {{
