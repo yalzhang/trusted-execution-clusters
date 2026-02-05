@@ -143,21 +143,6 @@ async fn register_handler(remote_addr: Option<SocketAddr>) -> Result<impl warp::
 }
 
 async fn create_machine(client: Client, uuid: &str, client_ip: &str) -> anyhow::Result<()> {
-    let machines: Api<Machine> = Api::default_namespaced(client);
-
-    // Check for existing machines with the same IP
-    let machine_list = machines.list(&Default::default()).await?;
-
-    for existing_machine in machine_list.items {
-        if existing_machine.spec.registration_address == client_ip {
-            if let Some(name) = &existing_machine.metadata.name {
-                info!("Found existing machine {name} with IP {client_ip}, deleting...");
-                machines.delete(name, &Default::default()).await?;
-                info!("Deleted existing machine: {name}");
-            }
-        }
-    }
-
     let machine_name = format!("machine-{uuid}");
     let machine = Machine {
         metadata: ObjectMeta {
@@ -171,6 +156,7 @@ async fn create_machine(client: Client, uuid: &str, client_ip: &str) -> anyhow::
         status: None,
     };
 
+    let machines: Api<Machine> = Api::default_namespaced(client);
     machines.create(&Default::default(), &machine).await?;
     info!("Created Machine: {machine_name} with IP: {client_ip}");
     Ok(())
@@ -196,7 +182,6 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use http::{Method, Request};
     use kube::api::ObjectList;
     use trusted_cluster_operator_test_utils::mock_client::*;
 
@@ -278,42 +263,16 @@ mod tests {
         }
     }
 
-    fn dummy_machines() -> ObjectList<Machine> {
-        ObjectList {
-            types: Default::default(),
-            metadata: Default::default(),
-            items: vec![dummy_machine()],
-        }
-    }
-
     #[tokio::test]
     async fn test_create_machine() {
-        let clos = async |req: Request<_>, ctr| match (ctr, req.method()) {
-            (0, &Method::GET) => Ok(serde_json::to_string(&dummy_machines()).unwrap()),
-            (1, &Method::POST) => Ok(serde_json::to_string(&dummy_machine()).unwrap()),
-            _ => panic!("unexpected API interaction: {req:?}, counter {ctr}"),
-        };
-        count_check!(2, clos, |client| {
+        let clos = async |_, _| Ok(serde_json::to_string(&dummy_machine()).unwrap());
+        count_check!(1, clos, |client| {
             assert!(create_machine(client, "test", "::").await.is_ok());
         });
     }
 
     #[tokio::test]
-    async fn test_create_machine_existing_ip() {
-        let clos = async |req: Request<_>, ctr| match (ctr, req.method()) {
-            (0, &Method::GET) => Ok(serde_json::to_string(&dummy_machines()).unwrap()),
-            (1, &Method::DELETE) | (2, &Method::POST) => {
-                Ok(serde_json::to_string(&dummy_machine()).unwrap())
-            }
-            _ => panic!("unexpected API interaction: {req:?}, counter {ctr}"),
-        };
-        count_check!(3, clos, |client| {
-            assert!(create_machine(client, "test", TEST_IP).await.is_ok());
-        });
-    }
-
-    #[tokio::test]
     async fn test_create_machine_error() {
-        test_get_error(async |c| create_machine(c, "test", TEST_IP).await.map(|_| ())).await;
+        test_create_error(async |c| create_machine(c, "test", TEST_IP).await.map(|_| ())).await;
     }
 }
